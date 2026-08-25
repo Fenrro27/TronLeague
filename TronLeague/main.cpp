@@ -1,16 +1,16 @@
-
 #include "CGApplication.h"
 #include <iostream>
-#include <stdexcept>
+#include <cstdlib>
+#include <exception>
 
 //
-// PROYECTO: Project6
+// PROYECTO: TronLeague
 // 
-// DESCRIPCI�N: Aplicaci�n gr�fica que introduce las texturas
+// DESCRIPCIÓN: Aplicación gráfica interactiva en OpenGL con físicas, shaders e iluminación
 //
 int main()
 {
-    char opc;
+    char opc = 'n';
     do {
         CGApplication app;
 
@@ -20,12 +20,14 @@ int main()
         }
         catch (const std::exception& e)
         {
-            std::cerr << e.what() << std::endl;
+            std::cerr << "Excepción no controlada: " << e.what() << std::endl;
             return EXIT_FAILURE;
         }
 
-        std::cout << "Quiere jugar otra vez(Y/N)?" << std::endl;
-        std::cin >> opc;
+        std::cout << "¿Quieres jugar otra vez? (Y/N): ";
+        if (!(std::cin >> opc)) {
+            break;
+        }
     } while (opc == 'y' || opc == 'Y');
 
     return EXIT_SUCCESS;

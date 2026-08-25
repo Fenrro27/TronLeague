@@ -1,0 +1,11 @@
+{
+  "name": "tronleague",
+  "version-string": "1.0.0",
+  "dependencies": [
+    "glfw3",
+    "glm",
+    "glew",
+    "stb"
+  ],
+  "builtin-baseline": "d80785c4ee1df22a4119a3451452f59e978e06aa"
+}

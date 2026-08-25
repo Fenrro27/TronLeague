@@ -1,0 +1,57 @@
+#include "CGGround.h"
+#include <GL/glew.h>
+
+//
+// FUNCIÓN: CGGround::CGGround(GLfloat l1, GLfloat l2, GLfloat textureRepeatX, GLfloat textureRepeatY)
+//
+// PROPÓSITO: Construye un plano para el suelo de lados 2*l1 y 2*l2
+//
+CGGround::CGGround(GLfloat l1, GLfloat l2, GLfloat textureRepeatX, GLfloat textureRepeatY)
+{
+    numFaces = 2;
+    numVertices = 4;
+
+    GLfloat p_normals[4][3] = {
+      { 0.0f, 1.0f, 0.0f },
+      { 0.0f, 1.0f, 0.0f },
+      { 0.0f, 1.0f, 0.0f },
+      { 0.0f, 1.0f, 0.0f }
+    };
+
+    GLfloat p_textures[4][2] = {
+      { 0.0f, 0.0f },
+      { textureRepeatX, 0.0f },
+      { textureRepeatX, textureRepeatY },
+      { 0.0f, textureRepeatY }
+    };
+
+    GLfloat p_vertices[4][3] = {
+      { l1, 0.0f, l2 },
+      { l1, 0.0f, -l2 },
+      { -l1, 0.0f, -l2 },
+      { -l1, 0.0f, l2 }
+    };
+
+    GLushort p_indexes[2][3] = {
+      { 0, 1, 2 },
+      { 0, 2, 3 }
+    };
+
+    normals = new GLfloat[numVertices * 3];
+    for (int i = 0; i < (int)numVertices; i++)
+        for (int j = 0; j < 3; j++) normals[3 * i + j] = p_normals[i][j];
+
+    vertices = new GLfloat[numVertices * 3];
+    for (int i = 0; i < (int)numVertices; i++)
+        for (int j = 0; j < 3; j++) vertices[3 * i + j] = p_vertices[i][j];
+
+    textures = new GLfloat[numVertices * 2];
+    for (int i = 0; i < (int)numVertices; i++)
+        for (int j = 0; j < 2; j++) textures[2 * i + j] = p_textures[i][j];
+
+    indexes = new GLushort[numFaces * 3];
+    for (int i = 0; i < (int)numFaces; i++)
+        for (int j = 0; j < 3; j++) indexes[3 * i + j] = p_indexes[i][j];
+
+    InitBuffers();
+}
