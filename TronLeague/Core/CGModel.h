@@ -1,6 +1,7 @@
 #pragma once
 
 #include <GL/glew.h>
+#include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include "CGShaderProgram.h"
 #include "CGScene.h"
@@ -12,8 +13,12 @@
 //
 // CLASE: CGModel
 //
-// DESCRIPCIÓN: Controlador y modelo lógico del juego: físicas, colisiones,
-//              iluminación con mapas de sombras y gestión de entrada.
+// DESCRIPCIÓN: Controlador y motor físico del juego:
+//              - Físicas vehiculares de la moto Tron (aceleración, fricción, giro e inclinación lateral)
+//              - Físicas del balón (gravedad, aerodinámica, rebotes elásticos y rotación 3D)
+//              - Colisión e impulso moto-balón
+//              - Cámara con perspectiva 3D realista y autocentrado
+//              - Marcador e interfaz gráfica Dear ImGui
 //
 class CGModel
 {
@@ -21,11 +26,15 @@ public:
 	void initialize(int w, int h);
 	void finalize();
 	void render();
-	void update();
+	void renderUI();
+	void update(float dt = 0.016f, GLFWwindow* window = nullptr);
 	void key_pressed(int key);
 	void mouse_button(int button, int action);
 	void mouse_move(double xpos, double ypos);
 	void resize(int w, int h);
+
+	void resetPositions();
+	int getScore() const { return score; }
 
 private:
 	CGShaderProgram* sceneProgram;
@@ -37,9 +46,24 @@ private:
 
 	CGObject* motoTron;
 	CGFigure* figPelota;
-	glm::vec3 directionVectorPelotaMov;
 
-	glm::vec3 ballVelocity;  // Velocidad de la pelota
+	// Variables físicas de la moto Tron
+	glm::vec3 motoPos = glm::vec3(0.0f, 3.2f, -80.0f);
+	float motoHeading = 0.0f;  // 0 grados = Orientada hacia adelante (+Z, hacia el balón y la portería)
+	float motoRoll = 0.0f;     // Ángulo de inclinación lateral en curvas (eje Z)
+	float motoVelocity = 0.0f; // Velocidad longitudinal (unidades/s)
+	const float maxForwardSpeed = 55.0f;
+	const float maxReverseSpeed = -20.0f;
+
+	// Variables físicas del balón
+	glm::vec3 ballPos = glm::vec3(0.0f, 10.0f, 40.0f);
+	glm::vec3 ballVelocity = glm::vec3(0.0f);
+	glm::mat4 ballRotation = glm::mat4(1.0f);
+	const float ballRadius = 5.0f;
+
+	// Puntuación y UI
+	int score = 0;
+	float goalCelebrationTimer = 0.0f;
 
 	GLsizei wndWidth;
 	GLsizei wndHeight;
@@ -51,16 +75,8 @@ private:
 	void CameraConstraints();
 	void closeApplication(bool gol);
 
-	// Colisión moto-pelota
-	void ReactToMotoCollision();
-
-	// Restricciones de la moto y de la pelota
-	void ApplyConstraintsToMotoTronPosition();
-	void ApplyConstraintsToBallPosition();
-
-	// Velocidad y aceleración del motoTron
-	float motoSpeed = 0.0f;
-	float maxSpeed = 2.0f;
-	float acceleration = 0.4f;
-	float friccion = 0.10f;
+	// Procesamiento de colisiones y límites
+	void HandleMotoBallCollision();
+	void ApplyConstraintsToMoto();
+	void ApplyConstraintsToBall(float dt);
 };

@@ -11,12 +11,13 @@ class CGFigure;
 //
 // CLASE: CGCamera
 //
-// DESCRIPCIÓN: Gestiona la cámara en tercera persona orientada a la moto y al balón
+// DESCRIPCIÓN: Cámara cinematográfica en 3ª persona con autocentrado dinámico tras la moto,
+//              amortiguación Spring-Damper y cambio suave de objetivo.
 //
 class CGCamera
 {
 public:
-    CGCamera(CGObject* target, CGFigure* target2, GLfloat distance, GLfloat height);
+    CGCamera(CGObject* target, CGFigure* target2, GLfloat distance = 22.0f, GLfloat height = 6.5f);
 
     glm::mat4 ViewMatrix();
     void SetPosition(GLfloat x, GLfloat y, GLfloat z);
@@ -30,25 +31,29 @@ public:
     GLfloat GetMoveStep();
     GLfloat GetTurnStep();
 
-    void UpdatePosition();
+    void UpdatePosition(float dt = 0.016f, float speedRatio = 0.0f, float motoHeading = 0.0f);
     void TurnRight(double d);
     void changeTarget();
+    bool isTargetBall() const { return useTarget2; }
 
 private:
     bool useTarget2 = false;
+    float targetBlend = 0.0f;
 
     glm::vec3 Pos;
+    glm::vec3 currentLookAt;
     glm::vec3 Dir;
     glm::vec3 Up;
     glm::vec3 Right;
 
     GLfloat moveStep;
     GLfloat turnStep;
-    GLfloat distance;
-    GLfloat height;
+    GLfloat baseDistance;
+    GLfloat baseHeight;
 
-    GLfloat yaw;
-    GLfloat pitch;
+    // Desplazamiento orbital del ratón
+    float orbitYaw = 0.0f;
+    float orbitPitch = 0.0f;
 
     CGObject* Target;
     CGFigure* Target2;

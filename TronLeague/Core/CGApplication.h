@@ -8,7 +8,7 @@
 // CLASE: CGApplication
 //
 // DESCRIPCIÓN: Construye una aplicación gráfica basada en una ventana GLFW 
-//              y gestiona el bucle de eventos y renderizado OpenGL
+//              y gestiona el bucle de eventos, renderizado OpenGL y UI con ImGui
 //
 class CGApplication
 {

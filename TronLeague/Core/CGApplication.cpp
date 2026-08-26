@@ -1,5 +1,8 @@
 #include "CGApplication.h"
 #include <iostream>
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_opengl3.h>
 
 //
 // FUNCIÓN: CGApplication::run()
@@ -36,8 +39,8 @@ void CGApplication::initWindow()
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
 
-    windowWidth = 800;
-    windowHeight = 600;
+    windowWidth = 1024;
+    windowHeight = 768;
     fullScreen = false;
 
     window = glfwCreateWindow(windowWidth, windowHeight, "TronLeague (OpenGL)", nullptr, nullptr);
@@ -62,7 +65,7 @@ void CGApplication::initWindow()
 //
 // FUNCIÓN: CGApplication::initOpenGL()
 //
-// PROPÓSITO: Inicializa el entorno gráfico con GLEW
+// PROPÓSITO: Inicializa el entorno gráfico con GLEW y el contexto de ImGui
 //
 void CGApplication::initOpenGL()
 {
@@ -72,6 +75,34 @@ void CGApplication::initOpenGL()
     {
         std::cerr << "Error al inicializar GLEW: " << glewGetErrorString(err) << std::endl;
     }
+
+    // Inicialización de Dear ImGui
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+
+    // Configuración de estilo visual temático Tron (Dark con acentos cyan/neón)
+    ImGui::StyleColorsDark();
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 8.0f;
+    style.FrameRounding = 4.0f;
+    style.GrabRounding = 4.0f;
+    style.WindowBorderSize = 1.0f;
+    style.FrameBorderSize = 0.0f;
+
+    ImVec4* colors = style.Colors;
+    colors[ImGuiCol_WindowBg] = ImVec4(0.04f, 0.08f, 0.13f, 0.85f);
+    colors[ImGuiCol_Border] = ImVec4(0.0f, 0.8f, 1.0f, 0.7f);
+    colors[ImGuiCol_TitleBg] = ImVec4(0.05f, 0.15f, 0.25f, 0.95f);
+    colors[ImGuiCol_TitleBgActive] = ImVec4(0.0f, 0.4f, 0.65f, 1.0f);
+    colors[ImGuiCol_PlotHistogram] = ImVec4(0.0f, 0.85f, 1.0f, 1.0f);
+    colors[ImGuiCol_Button] = ImVec4(0.0f, 0.4f, 0.6f, 0.7f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.0f, 0.6f, 0.9f, 0.9f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.0f, 0.8f, 1.0f, 1.0f);
+
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 400");
 }
 
 //
@@ -106,22 +137,35 @@ void CGApplication::mainLoop()
 }
 
 //
+//
 // FUNCIÓN: CGApplication::timing()
 //
-// PROPÓSITO: Control de tasa de cuadros y renderizado
+// PROPÓSITO: Control de fotogramas, integración física continua, renderizado 3D y dibujo de ImGui
 //
 void CGApplication::timing()
 {
     double nowTime = glfwGetTime();
-    deltaTime += (nowTime - lastTime) / limitFPS;
+    float frameDt = (float)(nowTime - lastTime);
     lastTime = nowTime;
 
-    while (deltaTime >= 1.0)
-    {
-        model.update();
-        deltaTime--;
-    }
+    if (frameDt <= 0.0f) frameDt = 0.016f;
+    if (frameDt > 0.05f) frameDt = 0.05f;
+
+    // Actualización física y lógica del juego (muestreo continuo)
+    model.update(frameDt, window);
+
+    // 1. Renderizado de escena 3D OpenGL
     model.render();
+
+    // 2. Renderizado de interfaz ImGui
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    model.renderUI();
+
+    ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
 //
@@ -132,6 +176,11 @@ void CGApplication::timing()
 void CGApplication::cleanup()
 {
     model.finalize();
+
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+
     if (window)
     {
         glfwDestroyWindow(window);

@@ -2,10 +2,13 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <GLFW/glfw3.h>
+#include <imgui.h>
 #include "CGCamera.h"
 #include "CGScene.h"
 #include <iostream>
 #include <cmath>
+#include <cstdio>
+#include <algorithm>
 
 //
 // FUNCIÓN: CGModel::initialize(int w, int h)
@@ -31,14 +34,16 @@ void CGModel::initialize(int w, int h)
     motoTron = new TronLightCycle();
 
     // Crea la pelota
-    figPelota = new CGSphere(20, 40, 4.0f);
-    ballVelocity = glm::vec3(0.0f, 0.0f, 0.0f);
-
-    // Crea la cámara en 3ª persona
-    camera = new CGCamera(motoTron, figPelota, 50.0f, 5.0f);
+    figPelota = new CGSphere(24, 48, ballRadius);
 
     // Crea la escena con la moto y la pelota
     scene = new CGScene(motoTron, figPelota);
+
+    // Crea la cámara en 3ª persona con perspectiva equilibrada
+    camera = new CGCamera(motoTron, figPelota, 22.0f, 6.5f);
+
+    // Inicializa posiciones de los objetos
+    resetPositions();
 
     // Crea el Framebuffer del mapa de sombras
     bool frameBufferStatus = InitShadowMap();
@@ -47,7 +52,7 @@ void CGModel::initialize(int w, int h)
         std::cerr << "Advertencia: No se pudo inicializar el Shadow Map Framebuffer" << std::endl;
     }
 
-    // Configura el viewport y volumen de recorte
+    // Configura el viewport y la matriz de proyección en perspectiva real
     resize(w, h);
 
     // Opciones globales de renderizado OpenGL
@@ -96,29 +101,23 @@ void CGModel::finalize()
 //
 // FUNCIÓN: CGModel::resize(int w, int h)
 //
-// PROPÓSITO: Asigna el viewport y la matriz de proyección en perspectiva
+// PROPÓSITO: Asigna el viewport y la proyección en perspectiva equilibrada (FOV 60°)
 //
 void CGModel::resize(int w, int h)
 {
-    double fov = glm::radians(15.0);
-    double sin_fov = sin(fov);
-    double cos_fov = cos(fov);
     if (h == 0) h = 1;
-    GLfloat aspectRatio = (GLfloat)w / (GLfloat)h;
-    GLfloat wHeight = (GLfloat)(sin_fov * 0.2 / cos_fov);
-    GLfloat wWidth = wHeight * aspectRatio;
-
     wndWidth = w;
     wndHeight = h;
 
     glViewport(0, 0, w, h);
-    projection = glm::frustum(-wWidth, wWidth, -wHeight, wHeight, 0.2f, 1000.0f);
+    float aspectRatio = (float)w / (float)h;
+    projection = glm::perspective(glm::radians(60.0f), aspectRatio, 0.5f, 2000.0f);
 }
 
 //
 // FUNCIÓN: CGModel::render()
 //
-// PROPÓSITO: Genera la imagen completa (ShadowMap + Skybox + Escena)
+// PROPÓSITO: Genera la imagen completa 3D (ShadowMap + Skybox + Escena)
 //
 void CGModel::render()
 {
@@ -128,7 +127,7 @@ void CGModel::render()
     sceneProgram->Use();
 
     glm::mat4 lightViewMatrix = scene->GetLightViewMatrix();
-    glm::mat4 lightPerspective = glm::ortho(-600.0f, 600.0f, -600.0f, 600.0f, -600.0f, 600.0f);
+    glm::mat4 lightPerspective = glm::ortho(-450.0f, 450.0f, -450.0f, 450.0f, -500.0f, 500.0f);
     glm::mat4 lightMVP = lightPerspective * lightViewMatrix;
 
     glBindFramebuffer(GL_FRAMEBUFFER, shadowFBO);
@@ -171,131 +170,457 @@ void CGModel::render()
 }
 
 //
-// FUNCIÓN: CGModel::update()
+// FUNCIÓN: CGModel::renderUI()
 //
-// PROPÓSITO: Actualiza físicas, movimientos y colisiones
+// PROPÓSITO: Renderiza la interfaz gráfica HUD con Dear ImGui
 //
-void CGModel::update()
+void CGModel::renderUI()
 {
-    // Fricción del vehículo al soltar acelerador/freno
-    if (motoSpeed > 0.0f) {
-        motoSpeed -= friccion;
-        if (motoSpeed < 0.0f) motoSpeed = 0.0f;
+    ImGuiIO& io = ImGui::GetIO();
+    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+
+    ImGuiWindowFlags hudFlags = ImGuiWindowFlags_NoDecoration | 
+                                ImGuiWindowFlags_AlwaysAutoResize | 
+                                ImGuiWindowFlags_NoSavedSettings | 
+                                ImGuiWindowFlags_NoFocusOnAppearing | 
+                                ImGuiWindowFlags_NoNav |
+                                ImGuiWindowFlags_NoMove;
+
+    // -------------------------------------------------------------
+    // 1. MARCADOR SUPERIOR (Arriba al Centro)
+    // -------------------------------------------------------------
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, 20.0f), ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+    ImGui::SetNextWindowBgAlpha(0.80f);
+
+    if (ImGui::Begin("Scoreboard", nullptr, hudFlags))
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.95f, 1.0f, 1.0f));
+        ImGui::SetWindowFontScale(1.6f);
+        ImGui::Text(" ⚽ GOLES: %d ", score);
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::PopStyleColor();
     }
-    else if (motoSpeed < 0.0f) {
-        motoSpeed += friccion;
-        if (motoSpeed > 0.0f) motoSpeed = 0.0f;
+    ImGui::End();
+
+    // -------------------------------------------------------------
+    // 2. BANNER DE CELEBRACIÓN DE GOL
+    // -------------------------------------------------------------
+    if (goalCelebrationTimer > 0.0f)
+    {
+        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.35f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowBgAlpha(0.88f);
+
+        if (ImGui::Begin("GoalCelebration", nullptr, hudFlags))
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.1f, 1.0f));
+            ImGui::SetWindowFontScale(2.4f);
+            ImGui::Text("  ¡¡¡GOOOOOOOL!!!  ");
+            ImGui::SetWindowFontScale(1.0f);
+            ImGui::PopStyleColor();
+
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.6f, 1.0f), "      ¡Punto anotado! Saque de centro      ");
+        }
+        ImGui::End();
     }
 
-    // Actualiza posición de la moto
-    scene->motoTron->Translate(glm::vec3(0, 0, 1) * motoSpeed);
+    // -------------------------------------------------------------
+    // 3. MONITOR DE RENDIMIENTO / FPS (Esquina Superior Derecha)
+    // -------------------------------------------------------------
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - 20.0f, 20.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+    ImGui::SetNextWindowBgAlpha(0.75f);
 
-    // Restricciones de movimiento
-    ApplyConstraintsToMotoTronPosition();
-    camera->UpdatePosition();
+    if (ImGui::Begin("FPSOverlay", nullptr, hudFlags))
+    {
+        ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.6f, 1.0f), "⚡ %.1f FPS", io.Framerate);
+        ImGui::TextColored(ImVec4(0.7f, 0.85f, 1.0f, 0.8f), "(%.2f ms)", 1000.0f / (io.Framerate > 0.0f ? io.Framerate : 60.0f));
+    }
+    ImGui::End();
+
+    // -------------------------------------------------------------
+    // 4. ACELERADOR VERTICAL (Esquina Inferior Izquierda)
+    // -------------------------------------------------------------
+    ImGui::SetNextWindowPos(ImVec2(20.0f, io.DisplaySize.y - 20.0f), ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.80f);
+
+    if (ImGui::Begin("SpeedGauge", nullptr, hudFlags))
+    {
+        ImGui::TextColored(ImVec4(0.0f, 0.9f, 1.0f, 1.0f), "⚡ ACELERADOR");
+        ImGui::Spacing();
+
+        float speedPct = std::clamp(std::abs(motoVelocity) / maxForwardSpeed, 0.0f, 1.0f);
+
+        const float barWidth = 24.0f;
+        const float barHeight = 140.0f;
+
+        ImVec2 p0 = ImGui::GetCursorScreenPos();
+        ImVec2 p1 = ImVec2(p0.x + barWidth, p0.y + barHeight);
+
+        // Fondo de la barra
+        drawList->AddRectFilled(p0, p1, IM_COL32(10, 20, 30, 200), 4.0f);
+        drawList->AddRect(p0, p1, IM_COL32(0, 200, 255, 255), 4.0f);
+
+        // Llenado de abajo hacia arriba
+        if (speedPct > 0.01f)
+        {
+            float fillY = p1.y - (barHeight * speedPct);
+            ImVec2 fillP0 = ImVec2(p0.x + 2.0f, fillY);
+            ImVec2 fillP1 = ImVec2(p1.x - 2.0f, p1.y - 2.0f);
+
+            ImU32 barColor = (motoVelocity >= 0.0f)
+                ? IM_COL32((int)(speedPct * 255), (int)(220 - speedPct * 50), 255, 240)
+                : IM_COL32(255, 100, 100, 240);
+
+            drawList->AddRectFilled(fillP0, fillP1, barColor, 2.0f);
+        }
+
+        // Marcas de nivel
+        for (int i = 1; i <= 3; ++i)
+        {
+            float tickY = p1.y - (barHeight * 0.25f * i);
+            drawList->AddLine(ImVec2(p1.x + 3.0f, tickY), ImVec2(p1.x + 8.0f, tickY), IM_COL32(0, 200, 255, 150));
+        }
+
+        ImGui::Dummy(ImVec2(barWidth + 45.0f, barHeight));
+
+        ImGui::SameLine();
+        ImGui::BeginGroup();
+        ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "MAX");
+        ImGui::Spacing(); ImGui::Spacing(); ImGui::Spacing(); ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "50%%");
+        ImGui::Spacing(); ImGui::Spacing(); ImGui::Spacing(); ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "0");
+        ImGui::EndGroup();
+
+        ImGui::Spacing();
+        char speedText[32];
+        std::snprintf(speedText, sizeof(speedText), "%.1f km/h (%.0f%%)", std::abs(motoVelocity) * 2.2f, speedPct * 100.0f);
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%s", speedText);
+    }
+    ImGui::End();
+
+    // -------------------------------------------------------------
+    // 5. PANEL DE CONTROLES (Esquina Inferior Derecha)
+    // -------------------------------------------------------------
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - 20.0f, io.DisplaySize.y - 20.0f), ImGuiCond_Always, ImVec2(1.0f, 1.0f));
+    ImGui::SetNextWindowBgAlpha(0.80f);
+
+    if (ImGui::Begin("🎮 Controles", nullptr, hudFlags))
+    {
+        ImGui::TextColored(ImVec4(0.0f, 0.9f, 1.0f, 1.0f), "Conducción:");
+        ImGui::BulletText("S : Acelerar");
+        ImGui::BulletText("W : Frenar / Reversa");
+        ImGui::BulletText("A / D : Girar moto");
+        
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.0f, 0.9f, 1.0f, 1.0f), "Cámara:");
+        ImGui::BulletText("Ratón : Orbitar");
+        ImGui::BulletText("C : Moto <-> Balón");
+        
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.0f, 0.9f, 1.0f, 1.0f), "Sistema:");
+        ImGui::BulletText("F12 : Pantalla Completa");
+        ImGui::BulletText("ESC : Salir");
+    }
+    ImGui::End();
+}
+
+//
+// FUNCIÓN: CGModel::resetPositions()
+//
+// PROPÓSITO: Resetea la posición y cinemática de la moto y del balón (mirando al campo rival)
+//
+void CGModel::resetPositions()
+{
+    // Resetea estado físico de la moto en su campo mirando hacia +Z (hacia el balón)
+    motoPos = glm::vec3(0.0f, 3.2f, -80.0f);
+    motoHeading = 0.0f;
+    motoRoll = 0.0f;
+    motoVelocity = 0.0f;
+
+    glm::mat4 motoMatrix = glm::translate(glm::mat4(1.0f), motoPos);
+    motoMatrix = glm::rotate(motoMatrix, glm::radians(motoHeading + 180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    motoTron->SetLocation(motoMatrix);
+
+    // Resetea estado físico del balón en el centro del campo
+    ballPos = glm::vec3(0.0f, 10.0f, 40.0f);
+    ballVelocity = glm::vec3(0.0f);
+    ballRotation = glm::mat4(1.0f);
+
+    glm::mat4 ballMatrix = glm::translate(glm::mat4(1.0f), ballPos) * ballRotation;
+    figPelota->setLocation(ballMatrix);
+
+    if (camera)
+    {
+        camera->UpdatePosition(0.016f, 0.0f, motoHeading);
+    }
+}
+
+//
+// FUNCIÓN: CGModel::update(float dt, GLFWwindow* window)
+//
+// PROPÓSITO: Motor físico continuo
+//
+void CGModel::update(float dt, GLFWwindow* window)
+{
+    if (dt <= 0.0f) dt = 0.016f;
+    if (dt > 0.05f) dt = 0.05f;
+
+    // Temporizador de celebración
+    if (goalCelebrationTimer > 0.0f)
+    {
+        goalCelebrationTimer -= dt;
+        if (goalCelebrationTimer < 0.0f) goalCelebrationTimer = 0.0f;
+    }
+
+    // ========================================================
+    // 1. DINÁMICA VEHICULAR DE LA MOTO TRON
+    // ========================================================
+    bool throttle = false;
+    bool brake = false;
+    bool turnLeft = false;
+    bool turnRight = false;
+
+    if (window != nullptr)
+    {
+        throttle = (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS);
+        brake = (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS);
+        turnLeft = (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS);
+        turnRight = (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS);
+    }
+
+    // Aceleración y frenada longitudinal
+    float engineAccel = 0.0f;
+    if (throttle) engineAccel += 58.0f;
+    if (brake) engineAccel -= 50.0f;
+
+    // Resistencia aerodinámica y rodadura
+    float aeroDrag = 0.0085f * motoVelocity * std::abs(motoVelocity);
+    float rollingFriction = 7.0f;
+
+    if (std::abs(engineAccel) > 0.01f)
+    {
+        motoVelocity += (engineAccel - aeroDrag) * dt;
+    }
+    else
+    {
+        if (motoVelocity > 0.0f)
+        {
+            motoVelocity -= (rollingFriction + aeroDrag) * dt;
+            if (motoVelocity < 0.0f) motoVelocity = 0.0f;
+        }
+        else if (motoVelocity < 0.0f)
+        {
+            motoVelocity += (rollingFriction - aeroDrag) * dt;
+            if (motoVelocity > 0.0f) motoVelocity = 0.0f;
+        }
+    }
+
+    // Límites de velocidad
+    if (motoVelocity > maxForwardSpeed) motoVelocity = maxForwardSpeed;
+    if (motoVelocity < maxReverseSpeed) motoVelocity = maxReverseSpeed;
+
+    // Dirección y ángulo de giro progresivo según velocidad
+    float steerInput = 0.0f;
+    if (turnLeft) steerInput += 1.0f;
+    if (turnRight) steerInput -= 1.0f;
+
+    float speedRatio = std::abs(motoVelocity) / maxForwardSpeed;
+    float steerResponsiveness = std::clamp(std::abs(motoVelocity) / 8.0f, 0.0f, 1.0f);
+    if (speedRatio > 0.7f)
+    {
+        steerResponsiveness = std::max(0.60f, 1.0f - (speedRatio - 0.7f) * 0.7f);
+    }
+
+    float turnRate = 85.0f * steerInput * steerResponsiveness;
+    if (motoVelocity < 0.0f) turnRate = -turnRate;
+
+    motoHeading += turnRate * dt;
+
+    // Inclinación lateral en curvas
+    float targetRoll = -steerInput * speedRatio * 20.0f;
+    float rollSmoothing = 1.0f - std::exp(-10.0f * dt);
+    motoRoll = glm::mix(motoRoll, targetRoll, rollSmoothing);
+
+    // Integración de posición de la moto (avance hacia +Z cuando heading = 0)
+    float radHeading = glm::radians(motoHeading);
+    glm::vec3 forwardDir = glm::vec3(std::sin(radHeading), 0.0f, std::cos(radHeading));
+    motoPos += forwardDir * motoVelocity * dt;
+
+    // Restricciones de límites para la moto
+    ApplyConstraintsToMoto();
+
+    // Actualización de la matriz de la moto
+    glm::mat4 motoMatrix = glm::translate(glm::mat4(1.0f), motoPos);
+    motoMatrix = glm::rotate(motoMatrix, glm::radians(motoHeading + 180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    motoMatrix = glm::rotate(motoMatrix, glm::radians(motoRoll), glm::vec3(0.0f, 0.0f, 1.0f));
+    motoTron->SetLocation(motoMatrix);
+
+    // ========================================================
+    // 2. FÍSICAS Y DINÁMICAS DEL BALÓN
+    // ========================================================
+    ApplyConstraintsToBall(dt);
+
+    // ========================================================
+    // 3. COLISIÓN E IMPULSO MOTO-BALÓN
+    // ========================================================
+    HandleMotoBallCollision();
+
+    // ========================================================
+    // 4. SEGUIMIENTO SUAVE DE CÁMARA
+    // ========================================================
+    camera->UpdatePosition(dt, speedRatio, motoHeading);
     CameraConstraints();
-    ApplyConstraintsToBallPosition();
 }
 
-void CGModel::ApplyConstraintsToBallPosition()
+//
+// FUNCIÓN: CGModel::ApplyConstraintsToBall(float dt)
+//
+// PROPÓSITO: Integración de gravedad, aerodinámica, rotación 3D y rebotes
+//
+void CGModel::ApplyConstraintsToBall(float dt)
 {
-    ReactToMotoCollision();
+    const float gravity = -38.0f;
+    ballVelocity.y += gravity * dt;
 
-    float deltaTime = 0.016f; // ~60 FPS
-    float gravity = -22.0f;
+    float airDrag = 0.009f * glm::length(ballVelocity);
+    ballVelocity -= ballVelocity * airDrag * dt;
 
-    ballVelocity.y += gravity * deltaTime;
+    ballPos += ballVelocity * dt;
 
-    float frictionCoefficient = 0.98f;
-    ballVelocity.x *= frictionCoefficient;
-    ballVelocity.z *= frictionCoefficient;
+    const float groundHeight = 0.0f;
+    const float restitution = 0.82f;
 
-    glm::mat4 loc = figPelota->getLocation();
-    glm::vec3 pos = glm::vec3(loc[3]);
-    pos.y += ballVelocity.y * (deltaTime * 3);
-    pos.x += ballVelocity.x * (deltaTime * 10);
-    pos.z += ballVelocity.z * (deltaTime * 10);
+    // Rebote en el suelo
+    if (ballPos.y < groundHeight + ballRadius)
+    {
+        ballPos.y = groundHeight + ballRadius;
+        if (std::abs(ballVelocity.y) < 1.2f)
+        {
+            ballVelocity.y = 0.0f;
+        }
+        else
+        {
+            ballVelocity.y = -ballVelocity.y * restitution;
+        }
 
-    float groundHeight = 0.0f;
-    float ballRadius = 4.0f;
-
-    if (pos.y < groundHeight + ballRadius) {
-        pos.y = groundHeight + ballRadius;
-        ballVelocity.y *= -0.8f; // Rebote vertical
+        ballVelocity.x *= (1.0f - 0.70f * dt);
+        ballVelocity.z *= (1.0f - 0.70f * dt);
     }
 
-    float minX = -100.0f + ballRadius;
-    float maxX = 100.0f - ballRadius;
-    float minZ = -400.0f + ballRadius;
-    float maxZ;
+    // Límites de los muros del estadio
+    const float minX = -110.0f + ballRadius;
+    const float maxX = 110.0f - ballRadius;
+    const float minZ = -350.0f + ballRadius;
+    float maxZ = 350.0f - ballRadius;
 
-    if (-30 < pos.x && pos.x < 30) {
-        if (pos.y < 14) { maxZ = 409.0f - ballRadius; }
-        else { maxZ = 400.0f - ballRadius; }
-    }
-    else {
-        maxZ = 400.0f - ballRadius;
-    }
-
-    if (pos.x > maxX) {
-        pos.x = maxX;
-        ballVelocity.x *= -0.8f;
-    }
-    if (pos.x < minX) {
-        pos.x = minX;
-        ballVelocity.x *= -0.8f;
-    }
-    if (pos.z > maxZ) {
-        pos.z = maxZ;
-        ballVelocity.z *= -0.8f;
-    }
-    if (pos.z < minZ) {
-        pos.z = minZ;
-        ballVelocity.z *= -0.8f;
+    // Apertura de la portería
+    bool insideGoalMouth = (ballPos.x > -23.0f && ballPos.x < 23.0f && ballPos.y < 16.0f);
+    if (insideGoalMouth)
+    {
+        maxZ = 368.0f - ballRadius;
     }
 
-    loc[3] = glm::vec4(pos, 1.0f);
-    figPelota->setLocation(loc);
+    if (ballPos.x > maxX) { ballPos.x = maxX; ballVelocity.x = -std::abs(ballVelocity.x) * restitution; }
+    if (ballPos.x < minX) { ballPos.x = minX; ballVelocity.x = std::abs(ballVelocity.x) * restitution; }
+    if (ballPos.z < minZ) { ballPos.z = minZ; ballVelocity.z = std::abs(ballVelocity.z) * restitution; }
 
-    // Detección de gol (portería)
-    if (400.0f < (pos.z - ballRadius)) {
-        closeApplication(true);
+    if (ballPos.z > maxZ)
+    {
+        if (!insideGoalMouth)
+        {
+            ballPos.z = maxZ;
+            ballVelocity.z = -std::abs(ballVelocity.z) * restitution;
+        }
+    }
+
+    // Rotación visual 3D
+    glm::vec3 horizVel = glm::vec3(ballVelocity.x, 0.0f, ballVelocity.z);
+    float horizSpeed = glm::length(horizVel);
+    if (horizSpeed > 0.05f)
+    {
+        glm::vec3 rollAxis = glm::normalize(glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), horizVel));
+        float rollAngle = (horizSpeed * dt) / ballRadius;
+        glm::mat4 deltaRot = glm::rotate(glm::mat4(1.0f), rollAngle, rollAxis);
+        ballRotation = deltaRot * ballRotation;
+    }
+
+    glm::mat4 ballMatrix = glm::translate(glm::mat4(1.0f), ballPos) * ballRotation;
+    figPelota->setLocation(ballMatrix);
+
+    // Detección de gol
+    if (ballPos.z - ballRadius > 350.0f && ballPos.y < 16.0f && ballPos.x > -23.0f && ballPos.x < 23.0f)
+    {
+        score++;
+        goalCelebrationTimer = 2.8f;
+        std::cout << "\n========================================" << std::endl;
+        std::cout << "        ¡¡¡HAS ANOTADO GOL!!!          " << std::endl;
+        std::cout << "        MARCADOR: " << score << " GOLES           " << std::endl;
+        std::cout << "========================================\n" << std::endl;
+        resetPositions();
     }
 }
 
-void CGModel::ReactToMotoCollision()
+//
+// FUNCIÓN: CGModel::HandleMotoBallCollision()
+//
+// PROPÓSITO: Colisión elástica entre la moto y el balón
+//
+void CGModel::HandleMotoBallCollision()
 {
-    glm::vec3 ballPos = glm::vec3(figPelota->getLocation()[3]);
-    glm::mat4 motoLoc = scene->motoTron->GetLocation();
-    glm::vec3 motoPos = glm::vec3(motoLoc[3]);
+    glm::vec3 motoCenter = motoPos;
+    motoCenter.y += 1.0f;
+    const float motoRadius = 6.5f;
 
-    float sphereRadius = 20.0f;
-    glm::vec3 sphereCenter = motoPos;
-    sphereCenter.y -= sphereRadius / 2.0f;
+    glm::vec3 diff = ballPos - motoCenter;
+    float dist = glm::length(diff);
+    float minDist = ballRadius + motoRadius;
 
-    float distance = glm::distance(ballPos, sphereCenter);
+    if (dist < minDist && dist > 0.001f)
+    {
+        glm::vec3 normal = diff / dist;
+        ballPos = motoCenter + normal * minDist;
 
-    if (distance <= sphereRadius) {
-        glm::vec3 impactDirection = glm::normalize(ballPos - motoPos);
-        float impactSpeed = glm::length(motoSpeed) + 0.2f;
-        float transferRatio = 1.5f;
-        glm::vec3 newBallVelocity = impactDirection * impactSpeed * transferRatio;
+        float radHeading = glm::radians(motoHeading);
+        glm::vec3 forwardDir = glm::vec3(std::sin(radHeading), 0.0f, std::cos(radHeading));
+        glm::vec3 motoVelVec = forwardDir * motoVelocity;
 
-        ballVelocity += newBallVelocity;
+        glm::vec3 relVel = ballVelocity - motoVelVec;
+        float velAlongNormal = glm::dot(relVel, normal);
 
-        float groundHeight = 0.0f;
-        float ballRadius = 4.0f;
+        if (velAlongNormal < 0.0f)
+        {
+            float impulse = -(1.0f + 0.88f) * velAlongNormal;
+            ballVelocity += normal * impulse;
 
-        if (ballVelocity.y < groundHeight + ballRadius) {
-            ballVelocity.y = groundHeight + ballRadius;
+            float forwardPush = std::max(motoVelocity, 0.0f) * 0.95f;
+            ballVelocity += forwardDir * forwardPush + glm::vec3(0.0f, 10.0f, 0.0f);
         }
     }
 }
 
 //
+// FUNCIÓN: CGModel::ApplyConstraintsToMoto()
+//
+// PROPÓSITO: Restricciones de límites de la pista para la moto
+//
+void CGModel::ApplyConstraintsToMoto()
+{
+    const float minX = -104.0f;
+    const float maxX = 104.0f;
+    const float minZ = -344.0f;
+    const float maxZ = 344.0f;
+
+    if (motoPos.x > maxX) { motoPos.x = maxX; motoVelocity *= 0.5f; }
+    if (motoPos.x < minX) { motoPos.x = minX; motoVelocity *= 0.5f; }
+    if (motoPos.z > maxZ) { motoPos.z = maxZ; motoVelocity *= 0.5f; }
+    if (motoPos.z < minZ) { motoPos.z = minZ; motoVelocity *= 0.5f; }
+}
+
+//
 // FUNCIÓN: CGModel::key_pressed(int key)
 //
-// PROPÓSITO: Respuesta a acciones de teclado
+// PROPÓSITO: Teclas de sistema y cambio de cámara
 //
 void CGModel::key_pressed(int key)
 {
@@ -307,42 +632,14 @@ void CGModel::key_pressed(int key)
     case GLFW_KEY_ESCAPE:
         closeApplication(false);
         break;
-
-    case GLFW_KEY_S:
-        motoSpeed += acceleration;
-        if (motoSpeed > maxSpeed) motoSpeed = maxSpeed;
-        scene->motoTron->Translate(glm::vec3(0, 0, 1) * motoSpeed);
-        break;
-    case GLFW_KEY_W:
-        motoSpeed -= acceleration;
-        if (motoSpeed < -maxSpeed) motoSpeed = -maxSpeed;
-        scene->motoTron->Translate(glm::vec3(0, 0, 1) * motoSpeed);
-        break;
-
-    case GLFW_KEY_A:
-        scene->motoTron->Rotate(2.0f, glm::vec3(0.0f, 1.0f, 0.0f));
-        break;
-    case GLFW_KEY_D:
-        scene->motoTron->Rotate(-2.0f, glm::vec3(0.0f, 1.0f, 0.0f));
-        break;
     }
 }
 
-//
-// FUNCIÓN: CGModel::closeApplication(bool gol)
-//
-// PROPÓSITO: Cierra la ventana y muestra mensaje de victoria si corresponde
-//
 void CGModel::closeApplication(bool gol)
 {
     GLFWwindow* window = glfwGetCurrentContext();
     if (window != nullptr) {
         glfwSetWindowShouldClose(window, GL_TRUE);
-    }
-    if (gol) {
-        std::cout << "\n========================================" << std::endl;
-        std::cout << "        ¡¡¡HAS ANOTADO GOL!!!          " << std::endl;
-        std::cout << "========================================\n" << std::endl;
     }
 }
 
@@ -373,7 +670,7 @@ void CGModel::mouse_move(double xpos, double ypos)
     lastX = xpos;
     lastY = ypos;
 
-    const float sensitivity = 0.1f;
+    const float sensitivity = 0.08f;
     xoffset *= sensitivity;
     yoffset *= sensitivity;
 
@@ -391,13 +688,13 @@ void CGModel::CameraConstraints()
     int constraint = 0;
     float groundHeight = 0.0f;
 
-    if (pos.y < groundHeight + 1.0f) { pos.y = groundHeight + 1.0f; constraint = 1; }
-    if (pos.y > groundHeight + 40.0f) { pos.y = groundHeight + 40.0f; constraint = 1; }
+    if (pos.y < groundHeight + 1.5f) { pos.y = groundHeight + 1.5f; constraint = 1; }
+    if (pos.y > groundHeight + 50.0f) { pos.y = groundHeight + 50.0f; constraint = 1; }
 
-    float minX = -100.0f;
-    float maxX = 100.0f;
-    float minZ = -400.0f;
-    float maxZ = 400.0f;
+    float minX = -120.0f;
+    float maxX = 120.0f;
+    float minZ = -365.0f;
+    float maxZ = 365.0f;
 
     if (pos.x > maxX) { pos.x = maxX; constraint = 1; }
     if (pos.x < minX) { pos.x = minX; constraint = 1; }
@@ -407,36 +704,7 @@ void CGModel::CameraConstraints()
     if (constraint == 1)
     {
         camera->SetPosition(pos.x, pos.y, pos.z);
-        camera->SetMoveStep(0.0f);
     }
-}
-
-//
-// FUNCIÓN: CGModel::ApplyConstraintsToMotoTronPosition()
-//
-// PROPÓSITO: Limita el movimiento de la moto al espacio del campo
-//
-void CGModel::ApplyConstraintsToMotoTronPosition()
-{
-    glm::mat4 loc = scene->motoTron->GetLocation();
-    glm::vec3 pos = glm::vec3(loc[3]);
-    float groundHeight = 0.0f;
-
-    if (pos.y < groundHeight + 1.0f) { pos.y = groundHeight + 1.0f; }
-    if (pos.y > groundHeight + 40.0f) { pos.y = groundHeight + 40.0f; }
-
-    float minX = -95.0f;
-    float maxX = 95.0f;
-    float minZ = -395.0f;
-    float maxZ = 395.0f;
-
-    if (pos.x > maxX) { pos.x = maxX; }
-    if (pos.x < minX) { pos.x = minX; }
-    if (pos.z > maxZ) { pos.z = maxZ; }
-    if (pos.z < minZ) { pos.z = minZ; }
-
-    loc[3] = glm::vec4(pos, 1.0f);
-    scene->motoTron->SetLocation(loc);
 }
 
 //

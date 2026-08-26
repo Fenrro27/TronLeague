@@ -6,6 +6,7 @@ find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
+find_package(imgui CONFIG REQUIRED)
 find_path(STB_INCLUDE_DIR "stb_image.h")
 
 if(NOT STB_INCLUDE_DIR)
@@ -34,6 +35,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     GLEW::GLEW
     glfw
     glm::glm
+    imgui::imgui
 )
 
 # POST-BUILD: Copiar shaders y texturas junto al binario
